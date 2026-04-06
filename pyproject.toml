@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tg-llm-bridge"
+version = "0.1.0"
+description = "Telegram bridge for local CLI agent workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "python-dotenv>=1.0,<2.0",
+  "python-telegram-bot>=21,<22",
+]
+
+[project.scripts]
+tg-llm-bridge = "tg_llm_bridge.main:main"
+
+[tool.setuptools]
+packages = ["tg_llm_bridge"]

@@ -1,0 +1,16 @@
+[Unit]
+Description=Telegram LLM Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=replace-me
+WorkingDirectory=/opt/tg-llm-bridge
+EnvironmentFile=/opt/tg-llm-bridge/.env
+ExecStart=/opt/tg-llm-bridge/.venv/bin/python -m tg_llm_bridge.main
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
