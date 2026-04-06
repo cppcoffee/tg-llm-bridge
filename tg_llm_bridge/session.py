@@ -48,16 +48,22 @@ class SessionManager:
         self._records[chat_id] = record
         return record
 
-    async def get_or_start_session(self, chat_id: int, provider_name: str) -> SessionRecord:
+    async def get_or_start_session(
+        self, chat_id: int, provider_name: str
+    ) -> SessionRecord:
         record = self._records.get(chat_id)
         if record and record.provider.name == provider_name:
             return record
         return await self.start_session(chat_id, provider_name)
 
-    async def send_text(self, chat_id: int, text: str, provider_name: str) -> SessionRecord:
+    async def send_text(
+        self, chat_id: int, text: str, provider_name: str
+    ) -> SessionRecord:
         record = await self.get_or_start_session(chat_id, provider_name)
         if record.is_busy:
-            raise RuntimeError("Provider is busy. Wait for the current response or use /cancel.")
+            raise RuntimeError(
+                "Provider is busy. Wait for the current response or use /cancel."
+            )
 
         record.last_activity = time.monotonic()
         record.active_task = asyncio.create_task(self._run_request(record, text))
@@ -123,11 +129,14 @@ class SessionManager:
         stale_chat_ids = [
             chat_id
             for chat_id, record in self._records.items()
-            if not record.is_busy and now - record.last_activity >= self._idle_timeout_seconds
+            if not record.is_busy
+            and now - record.last_activity >= self._idle_timeout_seconds
         ]
         for chat_id in stale_chat_ids:
             await self.stop_session(chat_id, announce=False)
-            await self._output_callback(chat_id, "[session closed due to idle timeout]\n")
+            await self._output_callback(
+                chat_id, "[session closed due to idle timeout]\n"
+            )
 
     async def _run_request(self, record: SessionRecord, prompt: str) -> None:
         output_file = None
@@ -138,7 +147,9 @@ class SessionManager:
                 resume=record.request_count > 0,
             )
             output_file = request.output_file
-            logger.info("Running provider=%s command=%s", record.provider.name, request.command)
+            logger.info(
+                "Running provider=%s command=%s", record.provider.name, request.command
+            )
             process = await asyncio.create_subprocess_exec(
                 *request.command,
                 cwd=str(record.provider.cwd) if record.provider.cwd else None,

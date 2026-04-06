@@ -167,9 +167,7 @@ class BridgeBot:
         self._cancel_typing_indicator(chat_id)
         typing_task = asyncio.create_task(self._typing_loop(chat_id, request_task))
         self._typing_tasks[chat_id] = typing_task
-        request_task.add_done_callback(
-            lambda _: typing_task.cancel()
-        )
+        request_task.add_done_callback(lambda _: typing_task.cancel())
         typing_task.add_done_callback(
             lambda _: self._clear_typing_indicator(chat_id, typing_task)
         )
