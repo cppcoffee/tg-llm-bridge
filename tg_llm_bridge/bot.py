@@ -29,6 +29,7 @@ class BridgeBot:
             providers=settings.providers,
             idle_timeout_seconds=settings.session_idle_timeout_seconds,
             output_callback=self._send_output,
+            request_started_callback=self._start_typing_indicator,
         )
         self._command_handler = CommandHandler(
             settings=settings,
@@ -126,14 +127,20 @@ class BridgeBot:
         provider_name = self._active_or_default_provider(chat_id)
         had_session = self._session_manager.has_session(chat_id)
         try:
-            record = await self._session_manager.send_text(chat_id, text, provider_name)
+            send_result = await self._session_manager.send_text(
+                chat_id, text, provider_name
+            )
         except (FileNotFoundError, OSError, RuntimeError) as exc:
             logger.warning("Failed to deliver input for chat_id=%s: %s", chat_id, exc)
             await self._send_message(chat_id, f"Failed to send prompt: {exc}")
             return
 
-        if record.active_task:
-            self._start_typing_indicator(chat_id, record.active_task)
+        record = send_result.record
+        if send_result.queued_ahead > 0:
+            await self._send_message(
+                chat_id,
+                f"[request queued: {send_result.queued_ahead} ahead]",
+            )
 
         if not had_session:
             await self._send_message(

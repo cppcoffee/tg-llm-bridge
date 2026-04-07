@@ -44,7 +44,7 @@ def load_settings() -> Settings:
         default_provider=default_provider,
         poll_timeout_seconds=_int_env("POLL_TIMEOUT_SECONDS", 30),
         message_max_chars=_int_env("MESSAGE_MAX_CHARS", 4000),
-        session_idle_timeout_seconds=_int_env("SESSION_IDLE_TIMEOUT_SECONDS", 1800),
+        session_idle_timeout_seconds=_int_env("SESSION_IDLE_TIMEOUT_SECONDS", 2700),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         providers=providers,
     )

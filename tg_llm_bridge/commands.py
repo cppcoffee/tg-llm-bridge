@@ -165,5 +165,6 @@ class CommandHandler:
             "/stop - stop the current session\n"
             "/cancel - cancel the in-flight request\n\n"
             f"Current preferred provider: {self.preferred_provider(chat_id)}\n"
-            "Plain text messages are forwarded as standalone CLI requests."
+            "Plain text messages are forwarded as standalone CLI requests and "
+            "queued while the provider is busy."
         )
