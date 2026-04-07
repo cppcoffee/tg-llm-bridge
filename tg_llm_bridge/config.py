@@ -51,12 +51,19 @@ def load_settings() -> Settings:
 
 
 def _load_providers() -> dict[str, ProviderSpec]:
-    workdir = _optional_path_env("WORKDIR")
+    workdir = _optional_path_env("WORKDIR") or Path.cwd()
+    codex_skip_git_repo_check = _bool_env("CODEX_SKIP_GIT_REPO_CHECK", default=True)
     providers: dict[str, ProviderSpec] = {}
     for adapter in builtin_adapters():
         if not _command_exists(adapter.executable):
             continue
-        providers[adapter.name] = ProviderSpec(adapter=adapter, cwd=workdir)
+        providers[adapter.name] = ProviderSpec(
+            adapter=adapter,
+            cwd=workdir,
+            skip_git_repo_check=(
+                codex_skip_git_repo_check if adapter.name == "codex" else False
+            ),
+        )
 
     if not providers:
         raise ValueError(
@@ -128,6 +135,21 @@ def _optional_path_env(name: str) -> Path | None:
 
 def _int_env(name: str, default: int) -> int:
     return int(os.getenv(name, str(default)))
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"{name} must be one of: 1, 0, true, false, yes, no, on, off"
+    )
 
 
 def _command_exists(executable: str) -> bool:

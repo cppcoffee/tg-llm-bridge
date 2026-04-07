@@ -89,7 +89,12 @@ class CodexAdapter(ProviderAdapter):
     name = "codex"
     executable = "codex"
 
-    def prepare_request(self, prompt: str, resume: bool) -> PreparedRequest:
+    def prepare_request(
+        self,
+        prompt: str,
+        resume: bool,
+        skip_git_repo_check: bool = False,
+    ) -> PreparedRequest:
         fd, temp_path = tempfile.mkstemp(prefix="tg-llm-bridge-codex-", suffix=".txt")
         os.close(fd)
         output_file = Path(temp_path)
@@ -99,21 +104,33 @@ class CodexAdapter(ProviderAdapter):
                 self.executable,
                 "exec",
                 "resume",
-                "--last",
-                "--output-last-message",
-                str(output_file),
-                prompt,
             ]
+            if skip_git_repo_check:
+                command.append("--skip-git-repo-check")
+            command.extend(
+                [
+                    "--last",
+                    "--output-last-message",
+                    str(output_file),
+                    prompt,
+                ]
+            )
         else:
             command = [
                 self.executable,
                 "exec",
-                "--color",
-                "never",
-                "--output-last-message",
-                str(output_file),
-                prompt,
             ]
+            if skip_git_repo_check:
+                command.append("--skip-git-repo-check")
+            command.extend(
+                [
+                    "--color",
+                    "never",
+                    "--output-last-message",
+                    str(output_file),
+                    prompt,
+                ]
+            )
 
         return PreparedRequest(command=tuple(command), output_file=output_file)
 
@@ -125,13 +142,18 @@ class CodexAdapter(ProviderAdapter):
         output_file: Path | None,
     ) -> str:
         primary_text = _read_output_file(output_file) or _clean_output_text(stdout_text)
-        return _build_response(primary_text, stderr_text, return_code)
+        return _build_response(
+            primary_text,
+            _add_codex_repo_check_hint(stderr_text),
+            return_code,
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class ProviderSpec:
     adapter: ProviderAdapter
     cwd: Path | None = None
+    skip_git_repo_check: bool = False
 
     @property
     def name(self) -> str:
@@ -142,6 +164,12 @@ class ProviderSpec:
         return self.adapter.executable
 
     def prepare_request(self, prompt: str, resume: bool) -> PreparedRequest:
+        if isinstance(self.adapter, CodexAdapter):
+            return self.adapter.prepare_request(
+                prompt,
+                resume,
+                skip_git_repo_check=self.skip_git_repo_check,
+            )
         return self.adapter.prepare_request(prompt, resume)
 
     def build_response(
@@ -160,6 +188,9 @@ class ProviderSpec:
 
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+_CODEX_REPO_CHECK_ERROR = (
+    "Not inside a trusted directory and --skip-git-repo-check was not specified."
+)
 _IGNORED_STDERR_PATTERNS = (
     "WARNING: proceeding, even though we could not update PATH",
 )
@@ -223,3 +254,16 @@ def _clean_stderr_text(text: str) -> str:
         if not any(pattern in line for pattern in _IGNORED_STDERR_PATTERNS)
     ]
     return "\n".join(lines).strip()
+
+
+def _add_codex_repo_check_hint(text: str) -> str:
+    cleaned = _clean_stderr_text(text)
+    if _CODEX_REPO_CHECK_ERROR not in cleaned:
+        return text
+
+    return (
+        f"{cleaned}\n\n"
+        "Hint: set WORKDIR to the project directory Codex should use. If you "
+        "disabled the default bypass, set CODEX_SKIP_GIT_REPO_CHECK=1 to allow "
+        "running outside a trusted Git worktree."
+    )

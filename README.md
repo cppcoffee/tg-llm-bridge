@@ -50,7 +50,8 @@ cp .env.example .env
 - `TELEGRAM_ALLOWED_USER_IDS`: Recommended configuration. Comma-separated Telegram numeric user IDs
 - Setting the allowlist variable to `*` disables validation and should only be used during development
 - `DEFAULT_PROVIDER`: Preferred default provider, for example `codex`
-- `WORKDIR`: Optional working directory shared by all providers
+- `WORKDIR`: Working directory shared by all providers. Recommended for `codex`. If omitted, the bridge uses the directory where the bot process started
+- `CODEX_SKIP_GIT_REPO_CHECK`: Optional. Defaults to enabled for `codex`. Set it to `0` only if you want to require a trusted Git worktree
 
 4. Ensure at least one supported CLI is available in `PATH`:
 
@@ -81,3 +82,12 @@ tg-llm-bridge
 - `/cancel`: Cancel the in-flight provider request
 
 Plain text messages are sent as standalone headless CLI requests and the resulting text is sent back to Telegram. Slash-prefixed text that is not a bot command is also forwarded directly.
+
+## Codex workdir notes
+
+`codex` refuses to run outside a trusted Git worktree unless `--skip-git-repo-check` is passed.
+
+- For normal use, set `WORKDIR` to the repository root you want Codex to operate on
+- The bridge enables `--skip-git-repo-check` for `codex` by default, so no extra configuration is required for non-repository directories
+- Set `CODEX_SKIP_GIT_REPO_CHECK=0` only if you explicitly want Codex to require a trusted Git worktree
+- `/list` shows the effective workdir used by each provider
