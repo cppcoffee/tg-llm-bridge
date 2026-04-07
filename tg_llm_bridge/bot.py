@@ -94,14 +94,12 @@ class BridgeBot:
 
         chat_id = int(chat.id)
         user_id = int(user.id) if user else None
-        username = _normalize_username(user.username if user else None)
 
-        if not self._is_allowed_user(user_id, username):
+        if not self._is_allowed_user(user_id):
             await self._send_message(chat_id, "Access denied for this user.")
             logger.warning(
-                "Denied user_id=%s username=%s chat_id=%s",
+                "Denied user_id=%s chat_id=%s",
                 user_id if user_id is not None else "<none>",
-                username or "<none>",
                 chat_id,
             )
             return
@@ -144,14 +142,12 @@ class BridgeBot:
                 reply_markup=_control_keyboard(),
             )
 
-    def _is_allowed_user(self, user_id: int | None, username: str | None) -> bool:
+    def _is_allowed_user(self, user_id: int | None) -> bool:
         if self._settings.allow_all_users:
             return True
         if user_id is not None and user_id in self._settings.allowed_user_ids:
             return True
-        if username is None:
-            return False
-        return username in self._settings.allowed_usernames
+        return False
 
     async def _send_output(self, chat_id: int, text: str) -> None:
         try:
@@ -307,13 +303,6 @@ def _retry_after_seconds(exc: RetryAfter) -> float:
     if hasattr(retry_after, "total_seconds"):
         return max(0.0, float(retry_after.total_seconds()))
     return max(0.0, float(retry_after))
-
-
-def _normalize_username(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip().removeprefix("@").lower()
-    return normalized or None
 
 
 def _control_keyboard() -> ReplyKeyboardMarkup:

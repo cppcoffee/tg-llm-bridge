@@ -15,7 +15,6 @@ class Settings:
     telegram_bot_token: str
     allow_all_users: bool
     allowed_user_ids: frozenset[int]
-    allowed_usernames: frozenset[str]
     default_provider: str
     poll_timeout_seconds: int
     message_max_chars: int
@@ -36,13 +35,12 @@ def load_settings() -> Settings:
             f"Available providers: {', '.join(sorted(providers))}"
         )
 
-    allow_all_users, allowed_user_ids, allowed_usernames = _load_allowed_users()
+    allow_all_users, allowed_user_ids = _load_allowed_users()
 
     return Settings(
         telegram_bot_token=bot_token,
         allow_all_users=allow_all_users,
         allowed_user_ids=allowed_user_ids,
-        allowed_usernames=allowed_usernames,
         default_provider=default_provider,
         poll_timeout_seconds=_int_env("POLL_TIMEOUT_SECONDS", 30),
         message_max_chars=_int_env("MESSAGE_MAX_CHARS", 4000),
@@ -69,24 +67,20 @@ def _load_providers() -> dict[str, ProviderSpec]:
     return providers
 
 
-def _load_allowed_users() -> tuple[bool, frozenset[int], frozenset[str]]:
+def _load_allowed_users() -> tuple[bool, frozenset[int]]:
     raw_user_ids = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").strip()
-    raw_usernames = os.getenv("TELEGRAM_ALLOWED_USERNAMES", "").strip()
-    if not raw_usernames:
-        raw_usernames = os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "").strip()
 
-    if raw_user_ids == "*" or raw_usernames == "*":
-        return True, frozenset(), frozenset()
+    if raw_user_ids == "*":
+        return True, frozenset()
 
     allowed_user_ids = _parse_allowed_user_ids(raw_user_ids)
-    allowed_usernames = _parse_allowed_usernames(raw_usernames)
-    if not allowed_user_ids and not allowed_usernames:
+    if not allowed_user_ids:
         raise ValueError(
-            "Configure TELEGRAM_ALLOWED_USER_IDS or TELEGRAM_ALLOWED_USERNAMES. "
+            "Configure TELEGRAM_ALLOWED_USER_IDS. "
             "Use '*' only for development."
         )
 
-    return False, allowed_user_ids, allowed_usernames
+    return False, allowed_user_ids
 
 
 def _parse_allowed_user_ids(raw_value: str) -> frozenset[int]:
@@ -111,24 +105,6 @@ def _parse_allowed_user_ids(raw_value: str) -> frozenset[int]:
         user_ids.add(user_id)
 
     return frozenset(user_ids)
-
-
-def _parse_allowed_usernames(raw_value: str) -> frozenset[str]:
-    if not raw_value:
-        return frozenset()
-
-    usernames: set[str] = set()
-    for item in raw_value.split(","):
-        username = _normalize_username(item)
-        if not username:
-            continue
-        usernames.add(username)
-
-    return frozenset(usernames)
-
-
-def _normalize_username(value: str) -> str:
-    return value.strip().removeprefix("@").lower()
 
 
 def _require_env(name: str) -> str:
