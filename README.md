@@ -24,7 +24,7 @@ The project uses `pyproject.toml` as the single source of truth for packaging an
 - Separate logical sessions per chat
 - Headless provider execution for `codex`, `claude`, and `gemini`
 - Provider switching and session reset
-- User allowlist with Telegram user IDs, plus optional username fallback
+- User allowlist with Telegram user IDs
 - Idle timeout cleanup, Telegram-safe message splitting, and rate limit retry
 
 ## Quick start
@@ -48,8 +48,7 @@ cp .env.example .env
 
 - `TELEGRAM_BOT_TOKEN`: Telegram bot token
 - `TELEGRAM_ALLOWED_USER_IDS`: Recommended configuration. Comma-separated Telegram numeric user IDs
-- `TELEGRAM_ALLOWED_USERNAMES`: Optional fallback configuration. Comma-separated Telegram usernames
-- Setting either allowlist variable to `*` disables validation and should only be used during development
+- Setting the allowlist variable to `*` disables validation and should only be used during development
 - `DEFAULT_PROVIDER`: Preferred default provider, for example `codex`
 - `WORKDIR`: Optional working directory shared by all providers
 
