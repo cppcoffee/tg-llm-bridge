@@ -1,0 +1,16 @@
+[Unit]
+Description=llm-tg-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=replace-me
+WorkingDirectory=/opt/llm-tg-bot
+EnvironmentFile=/opt/llm-tg-bot/.env
+ExecStart=/opt/llm-tg-bot/.venv/bin/python -m llm_tg_bot.main
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

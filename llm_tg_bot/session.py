@@ -9,7 +9,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from tg_llm_bridge.providers import ProviderSpec
+from llm_tg_bot.providers import ProviderSpec
 
 logger = logging.getLogger(__name__)
 

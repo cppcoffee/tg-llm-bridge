@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from tg_llm_bridge.bot import BridgeBot
-from tg_llm_bridge.config import load_settings
+from llm_tg_bot.bot import BridgeBot
+from llm_tg_bot.config import load_settings
 
 
 async def async_main() -> None:

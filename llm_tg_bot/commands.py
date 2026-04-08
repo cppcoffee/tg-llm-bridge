@@ -4,8 +4,8 @@ from collections.abc import Awaitable, Callable
 
 from telegram import ReplyKeyboardMarkup
 
-from tg_llm_bridge.config import Settings
-from tg_llm_bridge.session import SessionManager
+from llm_tg_bot.config import Settings
+from llm_tg_bot.session import SessionManager
 
 SendMessage = Callable[[int, str, ReplyKeyboardMarkup | None], Awaitable[None]]
 KeyboardFactory = Callable[[], ReplyKeyboardMarkup]

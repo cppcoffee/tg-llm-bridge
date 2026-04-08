@@ -4,4 +4,4 @@ __pycache__/
 *.pyc
 .env
 build/
-tg_llm_bridge.egg-info/
+llm_tg_bot.egg-info/

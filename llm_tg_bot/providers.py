@@ -95,7 +95,7 @@ class CodexAdapter(ProviderAdapter):
         resume: bool,
         skip_git_repo_check: bool = False,
     ) -> PreparedRequest:
-        fd, temp_path = tempfile.mkstemp(prefix="tg-llm-bridge-codex-", suffix=".txt")
+        fd, temp_path = tempfile.mkstemp(prefix="llm-tg-bot-codex-", suffix=".txt")
         os.close(fd)
         output_file = Path(temp_path)
 

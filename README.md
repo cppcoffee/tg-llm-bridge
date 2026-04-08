@@ -1,4 +1,4 @@
-# tg-llm-bridge
+# llm-tg-bot
 
 A Python Telegram bot that bridges chat messages to local CLI agents such as `codex`, `claude`, and `gemini`.
 
@@ -8,7 +8,7 @@ The bridge uses a headless request/response model instead of forwarding interact
 
 ```text
 .
-├── tg_llm_bridge/
+├── llm_tg_bot/
 ├── deploy/
 ├── .env.example
 ├── .gitignore
@@ -64,13 +64,13 @@ cp .env.example .env
 5. Start the bot:
 
 ```bash
-python -m tg_llm_bridge.main
+python -m llm_tg_bot.main
 ```
 
 After installation, you can also run the generated console script:
 
 ```bash
-tg-llm-bridge
+llm-tg-bot
 ```
 
 ## Telegram commands

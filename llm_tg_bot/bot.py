@@ -8,9 +8,9 @@ from telegram import Bot, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import RetryAfter, TelegramError
 
-from tg_llm_bridge.commands import CommandHandler, is_bot_command
-from tg_llm_bridge.config import Settings
-from tg_llm_bridge.session import SessionManager
+from llm_tg_bot.commands import CommandHandler, is_bot_command
+from llm_tg_bot.config import Settings
+from llm_tg_bot.session import SessionManager
 
 logger = logging.getLogger(__name__)
 

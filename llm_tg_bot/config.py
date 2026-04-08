@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from tg_llm_bridge.providers import ProviderSpec, builtin_adapters
+from llm_tg_bot.providers import ProviderSpec, builtin_adapters
 
 
 @dataclass(frozen=True, slots=True)
