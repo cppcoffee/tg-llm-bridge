@@ -236,10 +236,6 @@ def _read_output_file(path: Path | None) -> str:
 def _clean_output_text(text: str) -> str:
     cleaned = _ANSI_ESCAPE_RE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.rstrip() for line in cleaned.splitlines()]
-    while lines and not lines[0]:
-        lines.pop(0)
-    while lines and not lines[-1]:
-        lines.pop()
     return "\n".join(lines).strip()
 
 
