@@ -187,13 +187,12 @@ class SessionManager:
         record: SessionRecord,
         completed_task: asyncio.Task[None],
     ) -> None:
-        if self._records.get(record.chat_id) is not record:
-            if record.active_task is completed_task:
-                record.active_task = None
-            return
-
         if record.active_task is completed_task:
             record.active_task = None
+
+        if self._records.get(record.chat_id) is not record:
+            return
+
         self._ensure_active_request(record)
 
     @staticmethod

@@ -167,9 +167,7 @@ class BridgeBot:
     def _is_allowed_user(self, user_id: int | None) -> bool:
         if self._settings.allow_all_users:
             return True
-        if user_id is not None and user_id in self._settings.allowed_user_ids:
-            return True
-        return False
+        return user_id is not None and user_id in self._settings.allowed_user_ids
 
     async def _send_output(self, chat_id: int, message: OutgoingMessage) -> None:
         try:
