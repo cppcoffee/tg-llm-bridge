@@ -17,6 +17,8 @@ class Settings:
     allowed_user_ids: frozenset[int]
     default_provider: str
     poll_timeout_seconds: int
+    telegram_connection_pool_size: int
+    telegram_pool_timeout_seconds: float
     message_max_chars: int
     session_idle_timeout_seconds: int
     log_level: str
@@ -36,6 +38,12 @@ def load_settings() -> Settings:
         )
 
     allow_all_users, allowed_user_ids = _load_allowed_users()
+    telegram_connection_pool_size = _int_env("TELEGRAM_CONNECTION_POOL_SIZE", 8)
+    if telegram_connection_pool_size <= 0:
+        raise ValueError("TELEGRAM_CONNECTION_POOL_SIZE must be greater than 0")
+    telegram_pool_timeout_seconds = _float_env("TELEGRAM_POOL_TIMEOUT_SECONDS", 5.0)
+    if telegram_pool_timeout_seconds <= 0:
+        raise ValueError("TELEGRAM_POOL_TIMEOUT_SECONDS must be greater than 0")
 
     return Settings(
         telegram_bot_token=bot_token,
@@ -43,6 +51,8 @@ def load_settings() -> Settings:
         allowed_user_ids=allowed_user_ids,
         default_provider=default_provider,
         poll_timeout_seconds=_int_env("POLL_TIMEOUT_SECONDS", 30),
+        telegram_connection_pool_size=telegram_connection_pool_size,
+        telegram_pool_timeout_seconds=telegram_pool_timeout_seconds,
         message_max_chars=_int_env("MESSAGE_MAX_CHARS", 4000),
         session_idle_timeout_seconds=_int_env("SESSION_IDLE_TIMEOUT_SECONDS", 2700),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -135,6 +145,10 @@ def _optional_path_env(name: str) -> Path | None:
 
 def _int_env(name: str, default: int) -> int:
     return int(os.getenv(name, str(default)))
+
+
+def _float_env(name: str, default: float) -> float:
+    return float(os.getenv(name, str(default)))
 
 
 def _bool_env(name: str, default: bool) -> bool:

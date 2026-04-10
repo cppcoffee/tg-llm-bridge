@@ -7,6 +7,7 @@ import logging
 from telegram import Bot, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import RetryAfter, TelegramError
+from telegram.request import HTTPXRequest
 
 from llm_tg_bot.commands import CommandHandler
 from llm_tg_bot.config import Settings
@@ -21,8 +22,9 @@ from llm_tg_bot.session import SessionManager
 logger = logging.getLogger(__name__)
 
 _CONTROL_KEYBOARD_LAYOUT = [
-    ["/new", "/status", "/cancel"],
-    ["/list", "/stop", "/help"],
+    ["/new", "/status", "/queue"],
+    ["/list", "/stop", "/cancel"],
+    ["/help"],
 ]
 _TYPING_ACTION_INTERVAL_SECONDS = 4.0
 
@@ -30,7 +32,19 @@ _TYPING_ACTION_INTERVAL_SECONDS = 4.0
 class BridgeBot:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._bot = Bot(token=settings.telegram_bot_token)
+        connection_pool_size = max(1, settings.telegram_connection_pool_size)
+        pool_timeout = max(0.1, settings.telegram_pool_timeout_seconds)
+        self._bot = Bot(
+            token=settings.telegram_bot_token,
+            request=HTTPXRequest(
+                connection_pool_size=connection_pool_size,
+                pool_timeout=pool_timeout,
+            ),
+            get_updates_request=HTTPXRequest(
+                connection_pool_size=1,
+                pool_timeout=pool_timeout,
+            ),
+        )
         self._session_manager = SessionManager(
             providers=settings.providers,
             idle_timeout_seconds=settings.session_idle_timeout_seconds,
@@ -45,6 +59,7 @@ class BridgeBot:
         )
         self._send_locks: dict[int, asyncio.Lock] = {}
         self._typing_tasks: dict[int, asyncio.Task[None]] = {}
+        self._outbound_api_limiter = asyncio.Semaphore(connection_pool_size)
         self._offset: int | None = None
         self._idle_cleanup_task: asyncio.Task[None] | None = None
 
@@ -170,6 +185,7 @@ class BridgeBot:
         return user_id is not None and user_id in self._settings.allowed_user_ids
 
     async def _send_output(self, chat_id: int, message: OutgoingMessage) -> None:
+        await self._stop_typing_indicator(chat_id)
         try:
             await self._send_message(
                 chat_id,
@@ -197,6 +213,14 @@ class BridgeBot:
         if typing_task:
             typing_task.cancel()
 
+    async def _stop_typing_indicator(self, chat_id: int) -> None:
+        typing_task = self._typing_tasks.pop(chat_id, None)
+        if not typing_task:
+            return
+        typing_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await typing_task
+
     def _clear_typing_indicator(
         self,
         chat_id: int,
@@ -206,13 +230,9 @@ class BridgeBot:
             self._typing_tasks.pop(chat_id, None)
 
     async def _stop_all_typing_tasks(self) -> None:
-        typing_tasks = list(self._typing_tasks.values())
-        self._typing_tasks.clear()
-        for task in typing_tasks:
-            task.cancel()
-        for task in typing_tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        chat_ids = list(self._typing_tasks)
+        for chat_id in chat_ids:
+            await self._stop_typing_indicator(chat_id)
 
     async def _typing_loop(
         self,
@@ -269,12 +289,13 @@ class BridgeBot:
         parse_mode = chunk.parse_mode
         while True:
             try:
-                await self._bot.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    parse_mode=parse_mode,
-                    reply_markup=reply_markup,
-                )
+                async with self._outbound_api_limiter:
+                    await self._bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode=parse_mode,
+                        reply_markup=reply_markup,
+                    )
                 return
             except RetryAfter as exc:
                 delay = _retry_after_seconds(exc)
@@ -297,7 +318,8 @@ class BridgeBot:
     async def _send_chat_action(self, chat_id: int, action: ChatAction) -> bool:
         while True:
             try:
-                await self._bot.send_chat_action(chat_id=chat_id, action=action)
+                async with self._outbound_api_limiter:
+                    await self._bot.send_chat_action(chat_id=chat_id, action=action)
                 return True
             except RetryAfter as exc:
                 delay = _retry_after_seconds(exc)

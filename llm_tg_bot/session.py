@@ -141,6 +141,23 @@ class SessionManager:
             f"Idle: {idle_seconds}s"
         )
 
+    def queue_text(self, chat_id: int) -> str:
+        record = self._records.get(chat_id)
+        if record is None:
+            return "No active session."
+
+        if not record.pending_prompts:
+            return "Queue is empty."
+
+        queue_list = list(record.pending_prompts)
+        lines = [f"Queue ({len(queue_list)} item(s)):"]
+        for index, prompt in enumerate(queue_list, 1):
+            # Truncate long prompts for display
+            display_prompt = prompt[:100] + "..." if len(prompt) > 100 else prompt
+            lines.append(f"{index}. {display_prompt}")
+
+        return "\n".join(lines)
+
     async def stop_idle_sessions(self) -> None:
         if self._idle_timeout_seconds <= 0:
             return

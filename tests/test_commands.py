@@ -65,6 +65,36 @@ class CommandHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(sent_messages[0][2])
         self.assertIn("[session started: fake | workdir=", sent_messages[0][1])
 
+    async def test_queue_command_shows_empty_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            handler, sent_messages = self._build_handler(Path(tempdir))
+
+            await handler.handle(9, "/new fake .")
+            await handler.handle(9, "/queue")
+
+        self.assertEqual(len(sent_messages), 2)
+        self.assertIn("Queue is empty", sent_messages[1][1])
+
+    async def test_queue_command_shows_queued_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            handler, sent_messages = self._build_handler(Path(tempdir))
+
+            await handler.handle(9, "/new fake .")
+            # Get session manager from handler and directly add to queue
+            session_manager = handler._session_manager
+            record = session_manager._records.get(9)
+            self.assertIsNotNone(record)
+            # Directly add prompts to the queue without triggering execution
+            record.pending_prompts.append("First prompt")
+            record.pending_prompts.append("Second prompt")
+            await handler.handle(9, "/queue")
+
+        self.assertGreaterEqual(len(sent_messages), 2)
+        queue_message = sent_messages[-1][1]
+        self.assertIn("Queue (2 item(s)):", queue_message)
+        self.assertIn("1. First prompt", queue_message)
+        self.assertIn("2. Second prompt", queue_message)
+
     def _build_handler(
         self,
         workdir: Path,
@@ -78,6 +108,8 @@ class CommandHandlerTests(unittest.IsolatedAsyncioTestCase):
             allowed_user_ids=frozenset(),
             default_provider="fake",
             poll_timeout_seconds=30,
+            telegram_connection_pool_size=8,
+            telegram_pool_timeout_seconds=5.0,
             message_max_chars=4000,
             session_idle_timeout_seconds=2700,
             log_level="INFO",

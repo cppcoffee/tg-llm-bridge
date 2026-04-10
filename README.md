@@ -63,6 +63,8 @@ cp .env.example .env
 - `DEFAULT_PROVIDER`: Preferred default provider, for example `codex`
 - `WORKDIR`: Root working directory shared by all providers. `/new` lets you choose this root or one of its direct child directories for each new session. If omitted, the bridge uses the directory where the bot process started
 - `CODEX_SKIP_GIT_REPO_CHECK`: Optional. Defaults to enabled for `codex`. Set it to `0` only if you want to require a trusted Git worktree
+- `TELEGRAM_CONNECTION_POOL_SIZE`: Optional. Defaults to `8` for outbound Bot API calls
+- `TELEGRAM_POOL_TIMEOUT_SECONDS`: Optional. Defaults to `5.0` seconds when waiting for a free outbound connection
 - `SESSION_IDLE_TIMEOUT_SECONDS`: Optional. Defaults to `2700` seconds, which closes an idle session after 45 minutes
 
 4. Ensure at least one supported CLI is available in `PATH`:
@@ -115,6 +117,8 @@ uv run python -m llm_tg_bot.main
 - `/cancel`: Cancel the in-flight provider request, or abort `/new` setup before the new session starts
 
 Plain text messages are sent as standalone headless CLI requests and the resulting text is sent back to Telegram. Successful provider replies are rendered with Telegram HTML formatting for common markdown constructs such as headings, emphasis, links, lists, and fenced code blocks; if formatting fails, the bot falls back to plain text. If a chat sends more messages while a request is still running, the bridge queues them and replies with how many requests are ahead. Slash-prefixed text that is not a bot command is also forwarded directly.
+
+The bridge uses a dedicated Telegram request client for `getUpdates` and a separate outbound request client for sends/chat actions. If you run many chats in parallel or return long, chunked responses, tune `TELEGRAM_CONNECTION_POOL_SIZE` and `TELEGRAM_POOL_TIMEOUT_SECONDS` to match your workload.
 
 ## Codex workdir notes
 

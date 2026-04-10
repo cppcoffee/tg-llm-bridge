@@ -53,6 +53,7 @@ class CommandHandler:
             "/use": self._handle_use,
             "/new": self._handle_new,
             "/status": self._handle_status,
+            "/queue": self._handle_queue,
             "/stop": self._handle_stop,
             "/cancel": self._handle_cancel,
         }
@@ -128,6 +129,11 @@ class CommandHandler:
         preferred = self.preferred_provider(chat_id)
         status = self._session_manager.status_text(chat_id)
         await self._send_message(chat_id, f"Preferred provider: {preferred}\n{status}")
+
+    async def _handle_queue(self, chat_id: int, raw_arg: str) -> None:
+        del raw_arg
+        queue = self._session_manager.queue_text(chat_id)
+        await self._send_message(chat_id, queue)
 
     async def _handle_stop(self, chat_id: int, raw_arg: str) -> None:
         del raw_arg
@@ -342,6 +348,7 @@ class CommandHandler:
             "/use <provider> - set preferred provider for this chat\n"
             "/new [provider] [directory] - choose or start a session\n"
             "/status - show current session status\n"
+            "/queue - show queued prompts\n"
             "/stop - stop the current session\n"
             "/cancel - cancel the in-flight request or /new setup\n\n"
             f"Current preferred provider: {self.preferred_provider(chat_id)}\n"
