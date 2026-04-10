@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from llm_tg_bot.providers import ProviderSpec
+from llm_tg_bot.providers import ProviderSpec, RequestContext
 from llm_tg_bot.rendering import OutgoingMessage
 from llm_tg_bot.request_runner import run_provider_request, terminate_process
 from llm_tg_bot.workdirs import format_workdir
@@ -26,6 +26,7 @@ class SessionRecord:
     provider: ProviderSpec
     last_activity: float = field(default_factory=time.monotonic)
     request_count: int = 0
+    provider_session_id: str | None = None
     active_task: asyncio.Task[None] | None = None
     active_process: asyncio.subprocess.Process | None = None
     pending_prompts: deque[str] = field(default_factory=deque)
@@ -256,13 +257,18 @@ class SessionManager:
             result = await run_provider_request(
                 record.provider,
                 prompt,
-                resume=record.request_count > 0,
+                request_context=RequestContext(
+                    is_followup=record.request_count > 0,
+                    session_id=record.provider_session_id,
+                ),
                 process_tracker=lambda process: self._track_active_process(
                     record, process
                 ),
             )
             record.last_activity = result.completed_at
             if result.succeeded:
+                if result.session_id is not None:
+                    record.provider_session_id = result.session_id
                 record.request_count += 1
             if result.message is not None:
                 await self._output_callback(record.chat_id, result.message)

@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from llm_tg_bot.providers import ProviderSpec
+from llm_tg_bot.providers import ProviderSpec, RequestContext
 from llm_tg_bot.rendering import OutgoingMessage, RenderMode
 
 logger = logging.getLogger(__name__)
@@ -21,19 +21,20 @@ class RequestExecutionResult:
     completed_at: float
     message: OutgoingMessage | None
     succeeded: bool
+    session_id: str | None = None
 
 
 async def run_provider_request(
     provider: ProviderSpec,
     prompt: str,
     *,
-    resume: bool,
+    request_context: RequestContext,
     process_tracker: ProcessTracker | None = None,
 ) -> RequestExecutionResult:
     output_file = None
     process: asyncio.subprocess.Process | None = None
     try:
-        request = provider.prepare_request(prompt, resume=resume)
+        request = provider.prepare_request(prompt, context=request_context)
         output_file = request.output_file
         logger.info("Running provider=%s command=%s", provider.name, request.command)
         process = await asyncio.create_subprocess_exec(
@@ -56,8 +57,9 @@ async def run_provider_request(
         )
         return RequestExecutionResult(
             completed_at=time.monotonic(),
-            message=_response_message(response, process.returncode),
+            message=_response_message(response.text, process.returncode),
             succeeded=process.returncode == 0,
+            session_id=response.session_id,
         )
     except asyncio.CancelledError:
         if process and process.returncode is None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import tempfile
@@ -14,6 +15,18 @@ class PreparedRequest:
     output_file: Path | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RequestContext:
+    is_followup: bool
+    session_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderResponse:
+    text: str
+    session_id: str | None = None
+
+
 class ProviderAdapter(ABC):
     name: str
     executable: str
@@ -22,7 +35,7 @@ class ProviderAdapter(ABC):
     def prepare_request(
         self,
         prompt: str,
-        resume: bool,
+        context: RequestContext,
         *,
         skip_git_repo_check: bool = False,
     ) -> PreparedRequest:
@@ -35,7 +48,7 @@ class ProviderAdapter(ABC):
         stderr_text: str,
         return_code: int,
         output_file: Path | None,
-    ) -> str:
+    ) -> ProviderResponse:
         raise NotImplementedError
 
 
@@ -46,9 +59,11 @@ class TextOutputAdapter(ProviderAdapter):
         stderr_text: str,
         return_code: int,
         output_file: Path | None,
-    ) -> str:
+    ) -> ProviderResponse:
         del output_file
-        return _build_text_response(stdout_text, stderr_text, return_code)
+        return ProviderResponse(
+            text=_build_text_response(stdout_text, stderr_text, return_code)
+        )
 
 
 class ClaudeAdapter(TextOutputAdapter):
@@ -58,7 +73,7 @@ class ClaudeAdapter(TextOutputAdapter):
     def prepare_request(
         self,
         prompt: str,
-        resume: bool,
+        context: RequestContext,
         *,
         skip_git_repo_check: bool = False,
     ) -> PreparedRequest:
@@ -67,14 +82,38 @@ class ClaudeAdapter(TextOutputAdapter):
             self.executable,
             "-p",
             "--output-format",
-            "text",
+            "json",
             "--permission-mode",
             "bypassPermissions",
         ]
-        if resume:
+        if context.session_id:
+            command.extend(["--resume", context.session_id])
+        elif context.is_followup:
             command.append("--continue")
         command.append(prompt)
         return PreparedRequest(command=tuple(command))
+
+    def build_response(
+        self,
+        stdout_text: str,
+        stderr_text: str,
+        return_code: int,
+        output_file: Path | None,
+    ) -> ProviderResponse:
+        del output_file
+        if return_code != 0:
+            return ProviderResponse(
+                text=_build_text_response(stdout_text, stderr_text, return_code)
+            )
+
+        parsed = _parse_claude_json(stdout_text)
+        if parsed is None:
+            return ProviderResponse(
+                text=_build_text_response(stdout_text, stderr_text, return_code)
+            )
+
+        text = _build_response(parsed.text, stderr_text, return_code)
+        return ProviderResponse(text=text, session_id=parsed.session_id)
 
 
 class GeminiAdapter(TextOutputAdapter):
@@ -84,13 +123,13 @@ class GeminiAdapter(TextOutputAdapter):
     def prepare_request(
         self,
         prompt: str,
-        resume: bool,
+        context: RequestContext,
         *,
         skip_git_repo_check: bool = False,
     ) -> PreparedRequest:
         del skip_git_repo_check
         command = [self.executable, "--approval-mode", "yolo"]
-        if resume:
+        if context.is_followup:
             command.extend(["--resume", "latest"])
         command.extend(["-p", prompt, "--output-format", "text"])
         return PreparedRequest(command=tuple(command))
@@ -103,7 +142,7 @@ class CodexAdapter(ProviderAdapter):
     def prepare_request(
         self,
         prompt: str,
-        resume: bool,
+        context: RequestContext,
         *,
         skip_git_repo_check: bool = False,
     ) -> PreparedRequest:
@@ -116,11 +155,11 @@ class CodexAdapter(ProviderAdapter):
             "exec",
             "--dangerously-bypass-approvals-and-sandbox",
         ]
-        if resume:
+        if context.is_followup:
             command.append("resume")
         if skip_git_repo_check:
             command.append("--skip-git-repo-check")
-        command.extend(self._request_tail(prompt, output_file, resume))
+        command.extend(self._request_tail(prompt, output_file, context.is_followup))
         return PreparedRequest(command=tuple(command), output_file=output_file)
 
     def build_response(
@@ -129,12 +168,14 @@ class CodexAdapter(ProviderAdapter):
         stderr_text: str,
         return_code: int,
         output_file: Path | None,
-    ) -> str:
+    ) -> ProviderResponse:
         primary_text = _read_output_file(output_file) or _clean_output_text(stdout_text)
-        return _build_response(
-            primary_text,
-            _add_codex_repo_check_hint(stderr_text),
-            return_code,
+        return ProviderResponse(
+            text=_build_response(
+                primary_text,
+                _add_codex_repo_check_hint(stderr_text),
+                return_code,
+            )
         )
 
     @staticmethod
@@ -159,10 +200,10 @@ class ProviderSpec:
     def display_command(self) -> str:
         return self.adapter.executable
 
-    def prepare_request(self, prompt: str, resume: bool) -> PreparedRequest:
+    def prepare_request(self, prompt: str, context: RequestContext) -> PreparedRequest:
         return self.adapter.prepare_request(
             prompt,
-            resume,
+            context,
             skip_git_repo_check=self.skip_git_repo_check,
         )
 
@@ -172,7 +213,7 @@ class ProviderSpec:
         stderr_text: str,
         return_code: int,
         output_file: Path | None,
-    ) -> str:
+    ) -> ProviderResponse:
         return self.adapter.build_response(
             stdout_text=stdout_text,
             stderr_text=stderr_text,
@@ -256,4 +297,32 @@ def _add_codex_repo_check_hint(text: str) -> str:
         "Hint: set WORKDIR to the project directory Codex should use. If you "
         "disabled the default bypass, set CODEX_SKIP_GIT_REPO_CHECK=1 to allow "
         "running outside a trusted Git worktree."
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _ClaudeJsonResult:
+    text: str
+    session_id: str | None
+
+
+def _parse_claude_json(stdout_text: str) -> _ClaudeJsonResult | None:
+    cleaned = _clean_output_text(stdout_text)
+    if not cleaned:
+        return None
+
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    result = payload.get("result")
+    text = result if isinstance(result, str) else cleaned
+    session_id = payload.get("session_id")
+    return _ClaudeJsonResult(
+        text=_clean_output_text(text),
+        session_id=session_id if isinstance(session_id, str) and session_id else None,
     )
