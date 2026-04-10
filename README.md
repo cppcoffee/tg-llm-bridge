@@ -4,7 +4,7 @@ A Python Telegram bot that bridges chat messages to local CLI agents such as `co
 
 The bridge uses a headless request/response model instead of forwarding interactive TUI output. Provider replies are rendered as Telegram-compatible rich text when possible, while system/status messages remain plain text.
 
-## Project layout
+## Module overview
 
 ```text
 .
@@ -15,6 +15,16 @@ The bridge uses a headless request/response model instead of forwarding interact
 ├── pyproject.toml
 └── README.md
 ```
+
+Core modules:
+
+- `bot.py`: Telegram polling, authorization, typing indicator, outbound retry
+- `commands.py`: slash command routing and chat-level preference handling
+- `workdirs.py`: provider workdir discovery, validation, and prompt text
+- `session.py`: session lifecycle, per-chat queueing, and idle cleanup
+- `request_runner.py`: single provider subprocess execution and response shaping
+- `providers.py`: CLI adapter definitions and provider output normalization
+- `rendering.py`: Telegram-safe chunking and markdown-to-HTML conversion
 
 The project uses `pyproject.toml` as the single source of truth for packaging and dependencies. A separate `requirements.txt` is intentionally not included.
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -11,7 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from llm_tg_bot.providers import ProviderSpec
-from llm_tg_bot.rendering import OutgoingMessage, RenderMode
+from llm_tg_bot.rendering import OutgoingMessage
+from llm_tg_bot.request_runner import run_provider_request, terminate_process
+from llm_tg_bot.workdirs import format_workdir
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,9 @@ class SessionManager:
         return record
 
     async def get_or_start_session(
-        self, chat_id: int, provider_name: str
+        self,
+        chat_id: int,
+        provider_name: str,
     ) -> SessionRecord:
         record = self._records.get(chat_id)
         if record and record.provider.name == provider_name:
@@ -80,7 +83,10 @@ class SessionManager:
         return await self.start_session(chat_id, provider_name)
 
     async def send_text(
-        self, chat_id: int, text: str, provider_name: str
+        self,
+        chat_id: int,
+        text: str,
+        provider_name: str,
     ) -> SendResult:
         record = await self.get_or_start_session(chat_id, provider_name)
         self._sweep_completed_task(record)
@@ -95,38 +101,22 @@ class SessionManager:
 
     def active_provider_name(self, chat_id: int) -> str | None:
         record = self._records.get(chat_id)
-        if not record:
+        if record is None:
             return None
         return record.provider.name
 
     async def interrupt(self, chat_id: int) -> bool:
         record = self._records.get(chat_id)
-        if not record:
+        if record is None:
             return False
-
-        self._sweep_completed_task(record)
-        if not record.active_task:
-            return False
-
-        if record.active_process:
-            await _terminate_process(record.active_process)
-        record.active_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await record.active_task
-        return True
+        return await self._cancel_active_request(record)
 
     async def stop_session(self, chat_id: int, announce: bool = True) -> bool:
         record = self._records.pop(chat_id, None)
-        if not record:
+        if record is None:
             return False
 
-        if record.active_process:
-            await _terminate_process(record.active_process)
-        if record.active_task:
-            record.active_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await record.active_task
-        record.active_task = None
+        await self._cancel_active_request(record)
         record.pending_prompts.clear()
 
         if announce:
@@ -135,7 +125,7 @@ class SessionManager:
 
     def status_text(self, chat_id: int) -> str:
         record = self._records.get(chat_id)
-        if not record:
+        if record is None:
             return "No active session."
 
         self._ensure_active_request(record)
@@ -143,7 +133,7 @@ class SessionManager:
         return (
             f"Active session: {record.provider.name}\n"
             f"Command: {record.provider.display_command}\n"
-            f"Workdir: {self._format_workdir(record.provider.cwd)}\n"
+            f"Workdir: {format_workdir(record.provider.cwd)}\n"
             f"Mode: headless request/response\n"
             f"Requests: {record.request_count}\n"
             f"Busy: {'yes' if record.is_busy else 'no'}\n"
@@ -159,12 +149,17 @@ class SessionManager:
         stale_chat_ids: list[int] = []
         for chat_id, record in self._records.items():
             self._ensure_active_request(record)
-            if not record.is_busy and now - record.last_activity >= self._idle_timeout_seconds:
+            if (
+                not record.is_busy
+                and now - record.last_activity >= self._idle_timeout_seconds
+            ):
                 stale_chat_ids.append(chat_id)
+
         for chat_id in stale_chat_ids:
             await self.stop_session(chat_id, announce=False)
             await self._output_callback(
-                chat_id, OutgoingMessage("[session closed due to idle timeout]\n")
+                chat_id,
+                OutgoingMessage("[session closed due to idle timeout]\n"),
             )
 
     def _ensure_active_request(self, record: SessionRecord) -> bool:
@@ -200,6 +195,24 @@ class SessionManager:
         if record.active_task is not None and record.active_task.done():
             record.active_task = None
 
+    async def _cancel_active_request(self, record: SessionRecord) -> bool:
+        self._sweep_completed_task(record)
+        had_active_request = (
+            record.active_task is not None or record.active_process is not None
+        )
+
+        if record.active_process is not None:
+            await terminate_process(record.active_process)
+
+        if record.active_task is not None:
+            record.active_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await record.active_task
+            record.active_task = None
+
+        record.active_process = None
+        return had_active_request
+
     def _provider_for_session(
         self,
         provider_name: str,
@@ -214,63 +227,29 @@ class SessionManager:
             skip_git_repo_check=provider.skip_git_repo_check,
         )
 
-    @staticmethod
-    def _format_workdir(workdir: Path | None) -> str:
-        return str(workdir) if workdir else "(current working directory)"
+    def _track_active_process(
+        self,
+        record: SessionRecord,
+        process: asyncio.subprocess.Process | None,
+    ) -> None:
+        record.active_process = process
 
     async def _run_request(self, record: SessionRecord, prompt: str) -> None:
-        output_file = None
-        process: asyncio.subprocess.Process | None = None
         try:
-            request = record.provider.prepare_request(
+            result = await run_provider_request(
+                record.provider,
                 prompt,
                 resume=record.request_count > 0,
+                process_tracker=lambda process: self._track_active_process(
+                    record, process
+                ),
             )
-            output_file = request.output_file
-            logger.info(
-                "Running provider=%s command=%s", record.provider.name, request.command
-            )
-            process = await asyncio.create_subprocess_exec(
-                *request.command,
-                cwd=str(record.provider.cwd) if record.provider.cwd else None,
-                env=_child_environment(),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            record.active_process = process
-            stdout_bytes, stderr_bytes = await process.communicate()
-            record.last_activity = time.monotonic()
-
-            response = record.provider.build_response(
-                stdout_text=stdout_bytes.decode("utf-8", errors="replace"),
-                stderr_text=stderr_bytes.decode("utf-8", errors="replace"),
-                return_code=process.returncode,
-                output_file=output_file,
-            )
-            if process.returncode == 0:
+            record.last_activity = result.completed_at
+            if result.succeeded:
                 record.request_count += 1
-
-            if response:
-                render_mode = (
-                    RenderMode.MARKDOWN
-                    if process.returncode == 0
-                    else RenderMode.PLAIN
-                )
-                await self._output_callback(
-                    record.chat_id,
-                    OutgoingMessage(response, render_mode=render_mode),
-                )
-            elif process.returncode != 0:
-                await self._output_callback(
-                    record.chat_id,
-                    OutgoingMessage(
-                        f"[request failed: exit code {process.returncode}]\n"
-                    ),
-                )
+            if result.message is not None:
+                await self._output_callback(record.chat_id, result.message)
         except asyncio.CancelledError:
-            if process and process.returncode is None:
-                await _terminate_process(process)
             raise
         except Exception as exc:
             logger.exception("Provider request failed for chat_id=%s", record.chat_id)
@@ -279,28 +258,4 @@ class SessionManager:
                 OutgoingMessage(f"[request failed: {exc}]\n"),
             )
         finally:
-            if output_file:
-                with contextlib.suppress(FileNotFoundError):
-                    output_file.unlink()
             record.active_process = None
-
-
-async def _terminate_process(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is not None:
-        return
-
-    process.terminate()
-    try:
-        await asyncio.wait_for(process.wait(), timeout=3)
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.wait()
-
-
-def _child_environment() -> dict[str, str]:
-    env = dict(os.environ)
-    term = env.get("TERM", "").strip().lower()
-    if not term or term == "dumb":
-        env["TERM"] = "xterm-256color"
-    env.setdefault("COLORTERM", "truecolor")
-    return env

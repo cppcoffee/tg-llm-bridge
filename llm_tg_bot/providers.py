@@ -19,7 +19,13 @@ class ProviderAdapter(ABC):
     executable: str
 
     @abstractmethod
-    def prepare_request(self, prompt: str, resume: bool) -> PreparedRequest:
+    def prepare_request(
+        self,
+        prompt: str,
+        resume: bool,
+        *,
+        skip_git_repo_check: bool = False,
+    ) -> PreparedRequest:
         raise NotImplementedError
 
     @abstractmethod
@@ -33,56 +39,54 @@ class ProviderAdapter(ABC):
         raise NotImplementedError
 
 
-class ClaudeAdapter(ProviderAdapter):
+class TextOutputAdapter(ProviderAdapter):
+    def build_response(
+        self,
+        stdout_text: str,
+        stderr_text: str,
+        return_code: int,
+        output_file: Path | None,
+    ) -> str:
+        del output_file
+        return _build_text_response(stdout_text, stderr_text, return_code)
+
+
+class ClaudeAdapter(TextOutputAdapter):
     name = "claude"
     executable = "claude"
 
-    def prepare_request(self, prompt: str, resume: bool) -> PreparedRequest:
+    def prepare_request(
+        self,
+        prompt: str,
+        resume: bool,
+        *,
+        skip_git_repo_check: bool = False,
+    ) -> PreparedRequest:
+        del skip_git_repo_check
         command = [self.executable, "-p", "--output-format", "text"]
         if resume:
             command.append("--continue")
         command.append(prompt)
         return PreparedRequest(command=tuple(command))
 
-    def build_response(
-        self,
-        stdout_text: str,
-        stderr_text: str,
-        return_code: int,
-        output_file: Path | None,
-    ) -> str:
-        del output_file
-        return _build_text_response(stdout_text, stderr_text, return_code)
 
-
-class GeminiAdapter(ProviderAdapter):
+class GeminiAdapter(TextOutputAdapter):
     name = "gemini"
     executable = "gemini"
 
-    def prepare_request(self, prompt: str, resume: bool) -> PreparedRequest:
-        if resume:
-            command = [
-                self.executable,
-                "--resume",
-                "latest",
-                "-p",
-                prompt,
-                "--output-format",
-                "text",
-            ]
-        else:
-            command = [self.executable, "-p", prompt, "--output-format", "text"]
-        return PreparedRequest(command=tuple(command))
-
-    def build_response(
+    def prepare_request(
         self,
-        stdout_text: str,
-        stderr_text: str,
-        return_code: int,
-        output_file: Path | None,
-    ) -> str:
-        del output_file
-        return _build_text_response(stdout_text, stderr_text, return_code)
+        prompt: str,
+        resume: bool,
+        *,
+        skip_git_repo_check: bool = False,
+    ) -> PreparedRequest:
+        del skip_git_repo_check
+        command = [self.executable]
+        if resume:
+            command.extend(["--resume", "latest"])
+        command.extend(["-p", prompt, "--output-format", "text"])
+        return PreparedRequest(command=tuple(command))
 
 
 class CodexAdapter(ProviderAdapter):
@@ -93,45 +97,19 @@ class CodexAdapter(ProviderAdapter):
         self,
         prompt: str,
         resume: bool,
+        *,
         skip_git_repo_check: bool = False,
     ) -> PreparedRequest:
         fd, temp_path = tempfile.mkstemp(prefix="llm-tg-bot-codex-", suffix=".txt")
         os.close(fd)
         output_file = Path(temp_path)
 
+        command = [self.executable, "exec"]
         if resume:
-            command = [
-                self.executable,
-                "exec",
-                "resume",
-            ]
-            if skip_git_repo_check:
-                command.append("--skip-git-repo-check")
-            command.extend(
-                [
-                    "--last",
-                    "--output-last-message",
-                    str(output_file),
-                    prompt,
-                ]
-            )
-        else:
-            command = [
-                self.executable,
-                "exec",
-            ]
-            if skip_git_repo_check:
-                command.append("--skip-git-repo-check")
-            command.extend(
-                [
-                    "--color",
-                    "never",
-                    "--output-last-message",
-                    str(output_file),
-                    prompt,
-                ]
-            )
-
+            command.append("resume")
+        if skip_git_repo_check:
+            command.append("--skip-git-repo-check")
+        command.extend(self._request_tail(prompt, output_file, resume))
         return PreparedRequest(command=tuple(command), output_file=output_file)
 
     def build_response(
@@ -147,6 +125,13 @@ class CodexAdapter(ProviderAdapter):
             _add_codex_repo_check_hint(stderr_text),
             return_code,
         )
+
+    @staticmethod
+    def _request_tail(prompt: str, output_file: Path, resume: bool) -> list[str]:
+        common = ["--output-last-message", str(output_file), prompt]
+        if resume:
+            return ["--last", *common]
+        return ["--color", "never", *common]
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,13 +149,11 @@ class ProviderSpec:
         return self.adapter.executable
 
     def prepare_request(self, prompt: str, resume: bool) -> PreparedRequest:
-        if isinstance(self.adapter, CodexAdapter):
-            return self.adapter.prepare_request(
-                prompt,
-                resume,
-                skip_git_repo_check=self.skip_git_repo_check,
-            )
-        return self.adapter.prepare_request(prompt, resume)
+        return self.adapter.prepare_request(
+            prompt,
+            resume,
+            skip_git_repo_check=self.skip_git_repo_check,
+        )
 
     def build_response(
         self,
