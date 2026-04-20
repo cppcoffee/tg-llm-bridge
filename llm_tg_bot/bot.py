@@ -30,12 +30,12 @@ _TYPING_ACTION_INTERVAL_SECONDS = 4.0
 
 
 class BridgeBot:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, token: str, settings: Settings) -> None:
         self._settings = settings
         connection_pool_size = max(1, settings.telegram_connection_pool_size)
         pool_timeout = max(0.1, settings.telegram_pool_timeout_seconds)
         self._bot = Bot(
-            token=settings.telegram_bot_token,
+            token=token,
             request=HTTPXRequest(
                 connection_pool_size=connection_pool_size,
                 pool_timeout=pool_timeout,

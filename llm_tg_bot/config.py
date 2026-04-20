@@ -12,7 +12,7 @@ from llm_tg_bot.providers import ProviderSpec, builtin_adapters
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    telegram_bot_token: str
+    bot_tokens: list[str]
     allow_all_users: bool
     allowed_user_ids: frozenset[int]
     default_provider: str
@@ -28,7 +28,7 @@ class Settings:
 def load_settings() -> Settings:
     load_dotenv()
 
-    bot_token = _require_env("TELEGRAM_BOT_TOKEN")
+    bot_tokens = _load_bot_tokens()
     providers = _load_providers()
     default_provider = os.getenv("DEFAULT_PROVIDER", "codex").strip().lower()
     if default_provider not in providers:
@@ -37,7 +37,9 @@ def load_settings() -> Settings:
             f"Available providers: {', '.join(sorted(providers))}"
         )
 
-    allow_all_users, allowed_user_ids = _load_allowed_users()
+    allow_all_users, allowed_user_ids = _load_allowed_users(
+        os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").strip()
+    )
     telegram_connection_pool_size = _int_env("TELEGRAM_CONNECTION_POOL_SIZE", 8)
     if telegram_connection_pool_size <= 0:
         raise ValueError("TELEGRAM_CONNECTION_POOL_SIZE must be greater than 0")
@@ -46,7 +48,7 @@ def load_settings() -> Settings:
         raise ValueError("TELEGRAM_POOL_TIMEOUT_SECONDS must be greater than 0")
 
     return Settings(
-        telegram_bot_token=bot_token,
+        bot_tokens=bot_tokens,
         allow_all_users=allow_all_users,
         allowed_user_ids=allowed_user_ids,
         default_provider=default_provider,
@@ -58,6 +60,14 @@ def load_settings() -> Settings:
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         providers=providers,
     )
+
+
+def _load_bot_tokens() -> list[str]:
+    raw = _require_env("TELEGRAM_BOT_TOKENS")
+    tokens = [t.strip() for t in raw.split(",") if t.strip()]
+    if not tokens:
+        raise ValueError("TELEGRAM_BOT_TOKENS must contain at least one token")
+    return tokens
 
 
 def _load_providers() -> dict[str, ProviderSpec]:
@@ -84,9 +94,7 @@ def _load_providers() -> dict[str, ProviderSpec]:
     return providers
 
 
-def _load_allowed_users() -> tuple[bool, frozenset[int]]:
-    raw_user_ids = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").strip()
-
+def _load_allowed_users(raw_user_ids: str) -> tuple[bool, frozenset[int]]:
     if raw_user_ids == "*":
         return True, frozenset()
 
