@@ -4,4 +4,5 @@ __pycache__/
 *.pyc
 .env
 build/
+log/
 llm_tg_bot.egg-info/
