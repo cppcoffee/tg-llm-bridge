@@ -46,10 +46,14 @@ class BridgeBot:
             request=HTTPXRequest(
                 connection_pool_size=connection_pool_size,
                 pool_timeout=pool_timeout,
+                connect_timeout=10.0,
+                read_timeout=20.0,
             ),
             get_updates_request=HTTPXRequest(
                 connection_pool_size=1,
                 pool_timeout=pool_timeout,
+                connect_timeout=10.0,
+                read_timeout=settings.poll_timeout_seconds + 5.0,
             ),
         )
         self._session_manager = SessionManager(
